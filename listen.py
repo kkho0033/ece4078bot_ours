@@ -39,6 +39,8 @@ MIN_RAMP_THRESHOLD = 15  # Only ramp if change is greater than this
 MIN_PWM_THRESHOLD = 15
 current_movement, prev_movement = 'stop', 'stop'
 
+pid_left_base, pid_right_base = 0, 0
+
 def setup_gpio():
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
@@ -155,36 +157,51 @@ def apply_min_threshold(pwm_value, min_threshold):
 
 def pid_control():
     # Only applies for forward/backward, not turning
-    global left_pwm, right_pwm, left_count, right_count, use_PID, KP, KI, KD, prev_movement, current_movement
-    
+    global left_pwm, right_pwm, left_count, right_count
+    global use_PID, KP, KI, KD, prev_movement, current_movement
+    global pid_left_base, pid_right_base
+
     integral = 0
     last_error = 0
     last_time = monotonic()
-    
+
     # Ramping variables & params
     ramp_left_pwm = 0
     ramp_right_pwm = 0
     previous_left_target = 0
     previous_right_target = 0
-    
-    while running:          
+
+    while running:
         current_time = monotonic()
         dt = current_time - last_time
         last_time = current_time
-        
+
+        # Detect current movement mode
         prev_movement = current_movement
-        if (left_pwm > 0 and right_pwm > 0): current_movement = 'forward'
-        elif (left_pwm < 0 and right_pwm < 0): current_movement = 'backward'
-        elif (left_pwm == 0 and right_pwm == 0): current_movement = 'stop'
-        else: current_movement = 'turn'
-        
+        if (left_pwm > 0 and right_pwm > 0):
+            current_movement = 'forward'
+        elif (left_pwm < 0 and right_pwm < 0):
+            current_movement = 'backward'
+        elif (left_pwm == 0 and right_pwm == 0):
+            current_movement = 'stop'
+        else:
+            current_movement = 'turn'
+
+        # If we *enter* straight motion (or change straight direction), snapshot baselines for PID
+        if current_movement in ('forward', 'backward') and prev_movement != current_movement:
+            pid_left_base = left_count
+            pid_right_base = right_count
+            integral = 0
+            last_error = 0
+
         if not use_PID:
             target_left_pwm = left_pwm
             target_right_pwm = right_pwm
         else:
-            if current_movement == 'forward' or current_movement == 'backward':
-                
-                error = left_count - right_count
+            if current_movement in ('forward', 'backward'):
+                # Use relative counts since segment start (no global reset needed)
+                error = (left_count - pid_left_base) - (right_count - pid_right_base)
+
                 proportional = KP * error
                 integral += KI * error * dt
                 integral = max(-MAX_CORRECTION, min(integral, MAX_CORRECTION))  # Anti-windup
@@ -192,86 +209,65 @@ def pid_control():
                 correction = proportional + integral + derivative
                 correction = max(-MAX_CORRECTION, min(correction, MAX_CORRECTION))
                 last_error = error
-                            
+
                 if current_movement == 'backward':
                     correction = -correction
 
-                target_left_pwm = left_pwm - correction
-                target_right_pwm = right_pwm + correction               
+                target_left_pwm  = left_pwm  - correction
+                target_right_pwm = right_pwm + correction
             else:
-                # Reset when stopped or turning
+                # Turning or stopped: keep encoders intact (NO reset), but clear PID accumulators
                 integral = 0
                 last_error = 0
-                reset_encoder()
-                target_left_pwm = left_pwm
+                target_left_pwm  = left_pwm
                 target_right_pwm = right_pwm
-        
+
+        # Ramping (unchanged)
         if use_ramping and use_PID:
-            # PWM Ramping Logic
             max_change_per_cycle = RAMP_RATE * dt
-            
-            # Calculate differences for both motors
+
             left_diff = target_left_pwm - ramp_left_pwm
             right_diff = target_right_pwm - ramp_right_pwm
-            
-            # Determine if either motor needs ramping
+
             left_needs_ramp = abs(left_diff) > MIN_RAMP_THRESHOLD
             right_needs_ramp = abs(right_diff) > MIN_RAMP_THRESHOLD
-            
-            # Check for direction change conditions (but not stops)
+
             left_direction_change = (target_left_pwm * previous_left_target < 0) and target_left_pwm != 0 and previous_left_target != 0
             right_direction_change = (target_right_pwm * previous_right_target < 0) and target_right_pwm != 0 and previous_right_target != 0
-            
-            # Apply immediate changes for direction changes only (for safety)
+
             if left_direction_change:
                 ramp_left_pwm = target_left_pwm
             if right_direction_change:
                 ramp_right_pwm = target_right_pwm
-            
-            # Synchronized ramping - both motors ramp together or not at all
+
             if not left_direction_change and not right_direction_change:
                 if left_needs_ramp or right_needs_ramp:
-                    
-                    # Left motor ramping (including ramp-down to zero)
                     if abs(left_diff) <= max_change_per_cycle:
-                        ramp_left_pwm = target_left_pwm  # Close enough, set to target
+                        ramp_left_pwm = target_left_pwm
                     else:
-                        # Ramp towards target (up or down)
-                        if left_diff > 0:
-                            ramp_left_pwm += max_change_per_cycle
-                        else:
-                            ramp_left_pwm -= max_change_per_cycle
-                    
-                    # Right motor ramping (including ramp-down to zero)
+                        ramp_left_pwm += max_change_per_cycle if left_diff > 0 else -max_change_per_cycle
+
                     if abs(right_diff) <= max_change_per_cycle:
-                        ramp_right_pwm = target_right_pwm  # Close enough, set to target
+                        ramp_right_pwm = target_right_pwm
                     else:
-                        # Ramp towards target (up or down)
-                        if right_diff > 0:
-                            ramp_right_pwm += max_change_per_cycle
-                        else:
-                            ramp_right_pwm -= max_change_per_cycle
+                        ramp_right_pwm += max_change_per_cycle if right_diff > 0 else -max_change_per_cycle
                 else:
-                    # Neither motor needs ramping - apply targets directly
                     ramp_left_pwm = target_left_pwm
                     ramp_right_pwm = target_right_pwm
-            
-            # Store previous targets for next iteration
+
             previous_left_target = target_left_pwm
             previous_right_target = target_right_pwm
-        
         else:
-            # Ramping disabled - apply target values directly
             ramp_left_pwm = target_left_pwm
             ramp_right_pwm = target_right_pwm
-            
-        final_left_pwm = apply_min_threshold(ramp_left_pwm, MIN_PWM_THRESHOLD)
+
+        final_left_pwm  = apply_min_threshold(ramp_left_pwm,  MIN_PWM_THRESHOLD)
         final_right_pwm = apply_min_threshold(ramp_right_pwm, MIN_PWM_THRESHOLD)
         set_motors(final_left_pwm, final_right_pwm)
-        
-        if ramp_left_pwm != 0: # print for debugging purpose
+
+        if ramp_left_pwm != 0:
             print(f"(Left PWM, Right PWM)=({ramp_left_pwm:.2f},{ramp_right_pwm:.2f}), (Left Enc, Right Enc)=({left_count}, {right_count})")
-        
+
         time.sleep(0.01)
 
 
