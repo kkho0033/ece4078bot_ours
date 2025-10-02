@@ -474,7 +474,7 @@ def pid_control():
             right_needs_ramp = abs(right_diff) > MIN_RAMP_THRESHOLD
 
             left_direction_change = (target_left_pwm * previous_left_target < 0) and target_left_pwm != 0 and previous_left_target != 0
-            right_direction_change = (target_right_pwm * previous_right_target < 0) and target_right_target != 0 and previous_right_target != 0
+            right_direction_change = (target_right_pwm * previous_right_target < 0) and target_right_pwm != 0 and previous_right_target != 0
 
             if left_direction_change:
                 ramp_left_pwm = target_left_pwm
@@ -661,7 +661,7 @@ def main():
     try:
 
 
-        print("our listen or not?????????????????????????????????????")
+        print("ding hen shuai???????????")
         setup_gpio()
         
         # Start PID control thread
