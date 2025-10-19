@@ -288,13 +288,7 @@ def pid_control():
             print(f"(Left PWM, Right PWM)=({ramp_left_pwm:.2f},{ramp_right_pwm:.2f}), (Left Enc, Right Enc)=({left_count}, {right_count})")
 
         # NEW: first time we reach a complete stop → reset and print (0,0) ONCE
-        if final_left_pwm == 0 and final_right_pwm == 0:
-            if was_moving:
-                reset_encoder()  # ensures they are exactly zero
-                print("(Left Enc, Right Enc)=(0, 0)")
-                was_moving = False
-        else:
-            was_moving = True  # any non-zero PWM means we’re moving (or turning)
+        was_moving = (final_left_pwm != 0 or final_right_pwm != 0)
 
         time.sleep(0.01)
 
