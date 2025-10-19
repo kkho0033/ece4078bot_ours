@@ -77,30 +77,15 @@ def left_encoder_callback(channel):
     current_state = GPIO.input(LEFT_ENCODER)
     if (prev_left_state is not None and current_state != prev_left_state):
         left_count += (1 if left_dir >= 0 else -1)
-        prev_left_state = current_state
-    elif prev_left_state is None:
-        prev_left_state = current_state
+    prev_left_state = current_state if prev_left_state is None else prev_left_state
 
 def right_encoder_callback(channel):
     global right_count, prev_right_state, right_dir
     current_state = GPIO.input(RIGHT_ENCODER)
     if (prev_right_state is not None and current_state != prev_right_state):
         right_count += (1 if right_dir >= 0 else -1)
-        prev_right_state = current_state
-    elif prev_right_state is None:
-        prev_right_state = current_state
+    prev_right_state = current_state if prev_right_state is None else prev_right_state
 
-
-def right_encoder_callback(channel):
-    global right_count, prev_right_state, prev_right_time
-    current_state = GPIO.input(RIGHT_ENCODER)
-    
-    if (prev_right_state is not None and current_state != prev_right_state): 
-        right_count += 1
-        prev_right_state = current_state
-        
-    elif prev_right_state is None:
-        prev_right_state = current_state
     
 def reset_encoder():
     global left_count, right_count
@@ -228,8 +213,8 @@ def pid_control():
                 correction = max(-MAX_CORRECTION, min(correction, MAX_CORRECTION))
                 last_error = error
 
-                if current_movement == 'backward':
-                    correction = -correction
+                # if current_movement == 'backward':
+                #     correction = -correction
 
                 target_left_pwm  = left_pwm  - correction
                 target_right_pwm = right_pwm + correction
