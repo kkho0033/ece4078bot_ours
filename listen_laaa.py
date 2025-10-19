@@ -115,7 +115,7 @@ def set_motors(left, right):
             GPIO.output(LEFT_MOTOR_IN4, GPIO.HIGH)
         left_motor_pwm.ChangeDutyCycle(100)
         right_motor_pwm.ChangeDutyCycle(100)
-        time.sleep(0.05)
+        time.sleep(0.02)
 
     # RIGHT wheel
     if right > 0:
@@ -188,61 +188,53 @@ def pid_control():
         last_time = current_time
 
         # --- Detect current motion mode from commanded PWMs
+        # --- decide mode
         prev_movement = current_movement
-        if (left_pwm > 0 and right_pwm > 0):
-            current_movement = 'forward'
-        elif (left_pwm < 0 and right_pwm < 0):
-            current_movement = 'backward'
-        elif (left_pwm == 0 and right_pwm == 0):
+        if left_pwm == 0 and right_pwm == 0:
             current_movement = 'stop'
+        elif left_pwm * right_pwm > 0:
+            current_movement = 'forward' if left_pwm > 0 else 'backward'
         else:
-            # current_movement = 'turn'
-            # keep magnitudes equal in spin: want left ≈ -right  ⇒  (ΔL + ΔR) → 0
-            error = (left_count - pid_left_base) + (right_count - pid_right_base)
-            proportional = KP * error
-            integral += KI * error * dt
-            integral = max(-MAX_CORRECTION, min(integral, MAX_CORRECTION))
-            derivative = KD * (error - last_error) / dt if dt > 0 else 0
-            correction = proportional + integral + derivative
-            correction = max(-MAX_CORRECTION, min(correction, MAX_CORRECTION))
-            last_error = error
+            current_movement = 'turn'
 
-            target_left_pwm  = left_pwm  - correction
-            target_right_pwm = right_pwm - correction
-
-        # If we *enter* straight motion, snapshot baselines for PID
-        if current_movement in ('forward', 'backward') and prev_movement != current_movement:
-            pid_left_base = left_count
+        # --- re-base on entry to any motion mode
+        if current_movement != prev_movement and current_movement in ('forward','backward','turn'):
+            pid_left_base  = left_count
             pid_right_base = right_count
             integral = 0
             last_error = 0
 
-        # ----- PID (unchanged logic) -----
+        # --- PID
         if not use_PID:
-            target_left_pwm = left_pwm
-            target_right_pwm = right_pwm
+            target_left_pwm, target_right_pwm = left_pwm, right_pwm
         else:
-            if current_movement in ('forward', 'backward'):
+            if current_movement in ('forward','backward'):
+                # keep paths equal: (ΔL − ΔR) → 0
                 error = (left_count - pid_left_base) - (right_count - pid_right_base)
                 proportional = KP * error
                 integral += KI * error * dt
-                integral = max(-MAX_CORRECTION, min(integral, MAX_CORRECTION))  # Anti-windup
+                integral = max(-MAX_CORRECTION, min(integral, MAX_CORRECTION))
                 derivative = KD * (error - last_error) / dt if dt > 0 else 0
-                correction = proportional + integral + derivative
-                correction = max(-MAX_CORRECTION, min(correction, MAX_CORRECTION))
+                correction = max(-MAX_CORRECTION, min(proportional + integral + derivative, MAX_CORRECTION))
                 last_error = error
-
-                # if current_movement == 'backward':
-                #     correction = -correction
-
                 target_left_pwm  = left_pwm  - correction
                 target_right_pwm = right_pwm + correction
-            else:
-                # turning/stop: keep encoders intact while in the state
-                integral = 0
-                last_error = 0
-                target_left_pwm  = left_pwm
-                target_right_pwm = right_pwm
+
+            elif current_movement == 'turn':
+                # keep magnitudes equal in spin: (ΔL + ΔR) → 0
+                error = (left_count - pid_left_base) + (right_count - pid_right_base)
+                proportional = KP * error
+                integral += KI * error * dt
+                integral = max(-MAX_CORRECTION, min(integral, MAX_CORRECTION))
+                derivative = KD * (error - last_error) / dt if dt > 0 else 0
+                correction = max(-MAX_CORRECTION, min(proportional + integral + derivative, MAX_CORRECTION))
+                last_error = error
+                target_left_pwm  = left_pwm  - correction
+                target_right_pwm = right_pwm - correction
+
+            else:  # stop
+                integral = 0; last_error = 0
+                target_left_pwm, target_right_pwm = left_pwm, right_pwm
 
         # ----- Ramping (unchanged) -----
         if use_ramping:
