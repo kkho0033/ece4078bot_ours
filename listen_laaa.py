@@ -74,17 +74,24 @@ def setup_gpio():
 
 def left_encoder_callback(channel):
     global left_count, prev_left_state, left_dir
-    current_state = GPIO.input(LEFT_ENCODER)
-    if (prev_left_state is not None and current_state != prev_left_state):
-        left_count += (1 if left_dir >= 0 else -1)
-    prev_left_state = current_state if prev_left_state is None else prev_left_state
+    s = GPIO.input(LEFT_ENCODER)
+    if prev_left_state is not None and s != prev_left_state:
+        if left_dir > 0:
+            left_count += 1
+        elif left_dir < 0:
+            left_count -= 1
+        # if left_dir == 0: ignore counts while stopped
+    prev_left_state = s
 
 def right_encoder_callback(channel):
     global right_count, prev_right_state, right_dir
-    current_state = GPIO.input(RIGHT_ENCODER)
-    if (prev_right_state is not None and current_state != prev_right_state):
-        right_count += (1 if right_dir >= 0 else -1)
-    prev_right_state = current_state if prev_right_state is None else prev_right_state
+    s = GPIO.input(RIGHT_ENCODER)
+    if prev_right_state is not None and s != prev_right_state:
+        if right_dir > 0:
+            right_count += 1
+        elif right_dir < 0:
+            right_count -= 1
+    prev_right_state = s
 
     
 def reset_encoder():
