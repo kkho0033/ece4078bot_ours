@@ -62,8 +62,8 @@ def setup_gpio():
     # Encoder setup and interrupt (both activated and deactivated)
     GPIO.setup(LEFT_ENCODER, GPIO.IN, pull_up_down=GPIO.PUD_UP)
     GPIO.setup(RIGHT_ENCODER, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.add_event_detect(LEFT_ENCODER, GPIO.BOTH, callback=left_encoder_callback)
-    GPIO.add_event_detect(RIGHT_ENCODER, GPIO.BOTH, callback=right_encoder_callback)
+    GPIO.add_event_detect(LEFT_ENCODER, GPIO.BOTH, callback=left_encoder_callback, bouncetime=2)
+    GPIO.add_event_detect(RIGHT_ENCODER, GPIO.BOTH, callback=right_encoder_callback, bouncetime=2)
     
     # Initialize PWM (frequency: 100Hz)
     global left_motor_pwm, right_motor_pwm
@@ -196,7 +196,19 @@ def pid_control():
         elif (left_pwm == 0 and right_pwm == 0):
             current_movement = 'stop'
         else:
-            current_movement = 'turn'
+            # current_movement = 'turn'
+            # keep magnitudes equal in spin: want left ≈ -right  ⇒  (ΔL + ΔR) → 0
+            error = (left_count - pid_left_base) + (right_count - pid_right_base)
+            proportional = KP * error
+            integral += KI * error * dt
+            integral = max(-MAX_CORRECTION, min(integral, MAX_CORRECTION))
+            derivative = KD * (error - last_error) / dt if dt > 0 else 0
+            correction = proportional + integral + derivative
+            correction = max(-MAX_CORRECTION, min(correction, MAX_CORRECTION))
+            last_error = error
+
+            target_left_pwm  = left_pwm  - correction
+            target_right_pwm = right_pwm - correction
 
         # If we *enter* straight motion, snapshot baselines for PID
         if current_movement in ('forward', 'backward') and prev_movement != current_movement:
